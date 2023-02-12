@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Accelerometer } from 'expo-sensors';
+import * as Location from 'expo-location';
 
 export default function App() {
   const [{ x, y, z }, setData] = useState({
@@ -8,6 +9,10 @@ export default function App() {
     y: 0,
     z: 0,
   });
+
+  const [location, setLocation] = useState(null);
+  const [errorMsg, setErrorMsg] = useState(null);
+
   const [subscription, setSubscription] = useState(null);
   const [mode, setMode] = useState("Idle");
   const [xBroken, setXBroken] = useState("false");
@@ -24,24 +29,19 @@ export default function App() {
   const [buttonColor, setButtonColor] = useState("yellow");
   const [buttonText, setButtonText] = useState("START");
 
+  const [locationText, setLocationText] = useState("");
+
   var calibrationTimer = useRef(null);
   const calibrationDelay = 10000;
 
+  const earthquakeTimer = useRef(null);
+  const earthquakeDelay = 4000;
 
   const _slow = () => Accelerometer.setUpdateInterval(1000);
   const _fast = () => Accelerometer.setUpdateInterval(600);
-  // const _fast = () => Accelerometer.setUpdateInterval(16);
 
   const earthquakeStuff = ({ x, y, z }) => {
-    console.log(mode);
-    // console.log("Earthquake is ", ((xBroken || yBroken || zBroken) == true ? "happening." : "not happening."), xBroken, yBroken, zBroken)
-    // console.log(typeof maxX, x, maxX)
-    // console.log(x, minX, z < minX)
-    // console.log(x, maxX, z > maxX)
-    // console.log(y, minY, z < minY)
-    // console.log(y, maxY, z > maxY)
-    // console.log(z, minZ, z < minZ)
-    // console.log(z, maxZ, z > maxZ)
+    // console.log(mode);
 
     if (mode == "Calibration") {
       if (minX === -9999) {
@@ -50,10 +50,7 @@ export default function App() {
       else if (x < minX) {
         setMinX(x);
         console.log(minX);
-        clearTimeout(calibrationTimer.current);
-        calibrationTimer.current = setTimeout(() => {
-          setMode("Checking"); setButtonColor("green"); setButtonText("SAFE :)");
-        }, calibrationDelay);
+        resetCalibrationTimer();
       }
       if (maxX === -9999) {
         setMaxX(x);
@@ -61,10 +58,7 @@ export default function App() {
       else if (x > maxX) {
         setMaxX(x);
         console.log(maxX);
-        clearTimeout(calibrationTimer.current);
-        calibrationTimer.current = setTimeout(() => {
-          setMode("Checking"); setButtonColor("green"); setButtonText("SAFE :)");
-        }, calibrationDelay);
+        resetCalibrationTimer();
       }
       if (minY === -9999) {
         setMinY(y);
@@ -72,10 +66,7 @@ export default function App() {
       else if (y < minY) {
         setMinY(y);
         console.log(minY);
-        clearTimeout(calibrationTimer.current);
-        calibrationTimer.current = setTimeout(() => {
-          setMode("Checking"); setButtonColor("green"); setButtonText("SAFE :)");
-        }, calibrationDelay);
+        resetCalibrationTimer();
       }
       if (maxY === -9999) {
         setMaxY(y);
@@ -83,10 +74,7 @@ export default function App() {
       else if (y > maxY) {
         setMaxY(y);
         console.log(maxY);
-        clearTimeout(calibrationTimer.current);
-        calibrationTimer.current = setTimeout(() => {
-          setMode("Checking"); setButtonColor("green"); setButtonText("SAFE :)");
-        }, calibrationDelay);
+        resetCalibrationTimer();
       }
       if (minZ === -9999) {
         setMinZ(z);
@@ -94,10 +82,7 @@ export default function App() {
       else if (z < minZ) {
         setMinZ(z);
         console.log(minZ);
-        clearTimeout(calibrationTimer.current);
-        calibrationTimer.current = setTimeout(() => {
-          setMode("Checking"); setButtonColor("green"); setButtonText("SAFE :)");
-        }, calibrationDelay);
+        resetCalibrationTimer();
       }
       if (maxZ === -9999) {
         setMaxZ(z);
@@ -105,28 +90,72 @@ export default function App() {
       else if (z > maxZ) {
         setMaxZ(z);
         console.log(maxZ);
-        clearTimeout(calibrationTimer.current);
-        calibrationTimer.current = setTimeout(() => {
-          setMode("Checking"); setButtonColor("green"); setButtonText("SAFE :)");
-        }, calibrationDelay);
+        resetCalibrationTimer();
       }
     }
     else if (mode == "Checking") {
-      if (x < minX || x > maxX) setXBroken("true");
+      if (x < minX - 0.02 || x > maxX + 0.02) setXBroken("true");
       else setXBroken("false");
-      if (y < minY || y > maxY) setYBroken("true");
+      if (y < minY - 0.02 || y > maxY + 0.02) setYBroken("true");
       else setYBroken("false");
-      if (z < minZ || z > maxZ) setZBroken("true");
+      if (z < minZ - 0.02 || z > maxZ + 0.02) setZBroken("true");
       else setZBroken("false");
       if (xBroken == "true" || yBroken == "true" || zBroken == "true") {
         setButtonText("NOT SAFE :(");
         setButtonColor("red");
+
+        if (!earthquakeTimer.current) {
+          earthquakeTimer.current = setTimeout(() => {
+            earthquakeHappening();
+            clearTimeout(earthquakeTimer.current);
+            earthquakeTimer.current = null;
+          }, earthquakeDelay);
+        }
+
       } else {
         setButtonText("SAFE :)");
         setButtonColor("green");
+        clearTimeout(earthquakeTimer.current);
+        earthquakeTimer.current = null;
       }
     }
   }
+
+  useEffect(() => { //LOCATION USEEFFECT
+
+    (async () => {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        setErrorMsg('Permission to access location was denied');
+        return;
+      }
+    })();
+  }, []);
+
+  const setCheckingMode = () => {
+    setMode("Checking");
+    setButtonColor("green");
+    setButtonText("SAFE :)");
+  }
+
+  const resetCalibrationTimer = () => {
+    clearTimeout(calibrationTimer.current);
+    calibrationTimer.current = setTimeout(() => {
+      setCheckingMode();
+    }, calibrationDelay);
+  }
+
+  async function earthquakeHappening() {
+    let location = await Location.getCurrentPositionAsync({});
+    if (errorMsg) {
+      setLocationText(errorMsg);
+    } else if (location.coords.latitude !== "undefined") {
+      setLocation(location);
+      console.log("Earthquake Happened : Lat: " + location.coords.latitude + " Long: " + location.coords.longitude);
+      setLocationText("Lat: " + location.coords.latitude + "\n" + "Long: " + location.coords.longitude);
+    }
+  }
+
 
   const _subscribe = () => {
     setSubscription([
@@ -141,7 +170,7 @@ export default function App() {
     setSubscription(null);
   };
 
-  useEffect(() => {
+  useEffect(() => { // ACCELEROMETER USEEFFECT
     _unsubscribe();
     _subscribe();
     return () => _unsubscribe();
@@ -150,17 +179,15 @@ export default function App() {
   return (
     <View style={styles.container}>
       {/* <Text style={styles.text}>Accelerometer: (in gs where 1g = 9.81 m/s^2)</Text>*/}
+      <Text style={{ fontSize: 25, marginBottom: "10%", textAlign: "center" }}>
+        Location:{"\n"}{locationText}
+      </Text>
       <Text style={{ fontSize: 25, marginBottom: "10%" }}>
         {mode == "Idle" && "Idle"}
         {mode == "Calibration" && 'Calibrating'}
         {mode == "Checking" && "Earthquake is" && ((xBroken == "true" || yBroken == "true" || zBroken == "true") == true ? "happening." : "not happening.")}
       </Text>
-      {/* <Text style={styles.text}>{xBroken} x: {x}</Text>
-      <Text style={styles.text}>minX: {minX}, maxX: {maxX}</Text>
-      <Text style={styles.text}>{yBroken} y: {y}</Text>
-      <Text style={styles.text}>minY: {minY}, maxY: {maxY}</Text>
-      <Text style={styles.text}>{zBroken} z: {z}</Text>
-      <Text style={styles.text}>minZ: {minZ}, maxZ: {maxZ}</Text> */}
+
       <TouchableOpacity style={{ borderRadius: 100, width: "50%", height: "20%", backgroundColor: buttonColor, justifyContent: "center", alignItems: "center" }} onPress={() => {
         setMode("Calibration");
         setButtonColor("blue");
@@ -171,17 +198,6 @@ export default function App() {
       }}>
         <Text style={{ color: "black", fontSize: 25, width: "100%", textAlign: "center" }}>{buttonText}</Text>
       </TouchableOpacity>
-      {/* <View style={styles.buttonContainer}>
-        <TouchableOpacity onPress={subscription ? _unsubscribe : _subscribe} style={styles.button}>
-          <Text>{subscription ? 'On' : 'Off'}</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setMode("Calibration")} style={[styles.button, styles.middleButton]}>
-          <Text>Start Calibration</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setMode("Checking")} style={styles.button}>
-          <Text>Start Listening for Earthquake</Text>
-        </TouchableOpacity>
-      </View> */}
     </View>
   );
 }
